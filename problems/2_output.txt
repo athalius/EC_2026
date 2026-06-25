@@ -3638,8 +3638,7 @@
         }
       ],
       "pit": {
-        "enter": true,
-        "fuel_refuel_amount_l": 147.3022
+        "enter": false
       }
     },
     {
@@ -4289,7 +4288,8 @@
         }
       ],
       "pit": {
-        "enter": false
+        "enter": true,
+        "fuel_refuel_amount_l": 143.4108
       }
     },
     {
@@ -7279,8 +7279,7 @@
         }
       ],
       "pit": {
-        "enter": true,
-        "fuel_refuel_amount_l": 23.547
+        "enter": false
       }
     },
     {

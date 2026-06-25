@@ -3418,8 +3418,7 @@
         }
       ],
       "pit": {
-        "enter": true,
-        "fuel_refuel_amount_l": 144.9378
+        "enter": false
       }
     },
     {
@@ -4037,7 +4036,7 @@
           "id": 15,
           "type": "straight",
           "target_m/s": 90,
-          "brake_start_m_before_next": 181.332
+          "brake_start_m_before_next": 259.0457
         },
         {
           "id": 16,
@@ -4051,7 +4050,7 @@
           "id": 18,
           "type": "straight",
           "target_m/s": 90,
-          "brake_start_m_before_next": 176.04
+          "brake_start_m_before_next": 251.4857
         },
         {
           "id": 19,
@@ -4139,7 +4138,8 @@
         }
       ],
       "pit": {
-        "enter": false
+        "enter": true,
+        "fuel_refuel_amount_l": 144.0056
       }
     },
     {
@@ -6839,8 +6839,7 @@
         }
       ],
       "pit": {
-        "enter": true,
-        "fuel_refuel_amount_l": 145.1451
+        "enter": false
       }
     },
     {
@@ -8100,7 +8099,8 @@
         }
       ],
       "pit": {
-        "enter": false
+        "enter": true,
+        "fuel_refuel_amount_l": 145.3236
       }
     },
     {
@@ -10260,8 +10260,7 @@
         }
       ],
       "pit": {
-        "enter": true,
-        "fuel_refuel_amount_l": 100.3174
+        "enter": false
       }
     },
     {
@@ -11215,7 +11214,7 @@
           "id": 10,
           "type": "straight",
           "target_m/s": 90,
-          "brake_start_m_before_next": 261.5657
+          "brake_start_m_before_next": 228.87
         },
         {
           "id": 11,
@@ -12241,7 +12240,8 @@
         }
       ],
       "pit": {
-        "enter": false
+        "enter": true,
+        "fuel_refuel_amount_l": 15.2147
       }
     },
     {
@@ -12499,7 +12499,7 @@
           "id": 15,
           "type": "straight",
           "target_m/s": 90,
-          "brake_start_m_before_next": 181.332
+          "brake_start_m_before_next": 259.0457
         },
         {
           "id": 16,

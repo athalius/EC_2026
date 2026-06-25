@@ -601,14 +601,10 @@ namespace Hackathon
                                 fuelFlat = (K_base + K_drag * term) * dFlat;
                                 total_v2_d += term * dFlat;
                             }
-                            double fuelDecel = 0;
-                            if (dDecel > 0)
-                            {
-                                double term = Math.Pow((vTarget + vEndLimit)/2, 2);
-                                fuelDecel = (K_base + K_drag * term) * dDecel;
-                                total_v2_d += term * dDecel;
-                            }
-                            fuelUsed = fuelAccel + fuelFlat + fuelDecel;
+                            // The official simulator consumes NO fuel while braking (engine off / coasting):
+                            // a 900m straight that reaches top speed burns only ~accel+cruise worth of fuel.
+                            // So the deceleration phase contributes zero fuel.
+                            fuelUsed = fuelAccel + fuelFlat;
 
                             currentSpeed = vEndLimit;
                             outSeg.target_m_s = Math.Round(vTarget, 4);
