@@ -36,7 +36,8 @@ namespace Hackathon
                 try
                 {
                     string text = PdfUtils.ExtractPDFText(pdfFile);
-                    Console.WriteLine(text);
+                    File.WriteAllText("pdf_text.txt", text);
+                    Console.WriteLine("Successfully saved to pdf_text.txt");
                 }
                 catch (Exception ex)
                 {

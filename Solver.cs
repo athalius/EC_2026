@@ -348,8 +348,8 @@ namespace Hackathon
             double K_base = 0.0005;
             double K_drag = 0.0000000015;
 
-            bool enableDegradation = input.race.name.Contains("Level 4");
-            bool enableFuel = !input.race.name.Contains("Level 1");
+            bool enableDegradation = input.race.name.Contains("Level 4", StringComparison.OrdinalIgnoreCase);
+            bool enableFuelLimp = !input.race.name.Contains("Level 1", StringComparison.OrdinalIgnoreCase);
 
             int n = input.track.segments.Count;
             double totalTrackLength = input.track.segments.Sum(s => s.length_m);
@@ -371,6 +371,7 @@ namespace Hackathon
             int blowouts = 0;
             bool isLimp = false;
             double totalFuelUsed = 0;
+            double total_v2_d = 0;
 
             var strategy = new OutputStrategy
             {
@@ -508,7 +509,8 @@ namespace Hackathon
                         {
                             double limpSpeed = input.car.limp_constant_m_s;
                             timeUsed = L / limpSpeed;
-                            fuelUsed = enableFuel ? (K_base + K_drag * limpSpeed * limpSpeed) * L : 0;
+                            fuelUsed = (K_base + K_drag * limpSpeed * limpSpeed) * L;
+                            total_v2_d += limpSpeed * limpSpeed * L;
                             degUsed = enableDegradation ? segDegRate * L * 0.0000166 : 0;
                             currentSpeed = limpSpeed;
                             
@@ -526,23 +528,43 @@ namespace Hackathon
                             {
                                 double tAccel = (vTarget - vStart) / segAccel;
                                 timeUsed += tAccel;
-                                fuelUsed += enableFuel ? (K_base + K_drag * Math.Pow((vStart + vTarget)/2, 2)) * dAccel : 0;
                                 degUsed += enableDegradation ? segDegRate * dAccel * 0.0000166 : 0;
                             }
                             if (dFlat > 0)
                             {
                                 double tFlat = dFlat / vTarget;
                                 timeUsed += tFlat;
-                                fuelUsed += enableFuel ? (K_base + K_drag * vTarget * vTarget) * dFlat : 0;
                                 degUsed += enableDegradation ? segDegRate * dFlat * 0.0000166 : 0;
                             }
                             if (dDecel > 0)
                             {
                                 double tDecel = (vTarget - vEndLimit) / segDecel;
                                 timeUsed += tDecel;
-                                fuelUsed += enableFuel ? (K_base + K_drag * Math.Pow((vTarget + vEndLimit)/2, 2)) * dDecel : 0;
                                 degUsed += enableDegradation ? ((Math.Pow(vTarget/100, 2) - Math.Pow(vEndLimit/100, 2)) * 0.0398 * segDegRate) : 0;
                             }
+
+                            double fuelAccel = 0;
+                            if (dAccel > 0)
+                            {
+                                double term = Math.Pow((vStart + vTarget)/2, 2);
+                                fuelAccel = (K_base + K_drag * term) * dAccel;
+                                total_v2_d += term * dAccel;
+                            }
+                            double fuelFlat = 0;
+                            if (dFlat > 0)
+                            {
+                                double term = vTarget * vTarget;
+                                fuelFlat = (K_base + K_drag * term) * dFlat;
+                                total_v2_d += term * dFlat;
+                            }
+                            double fuelDecel = 0;
+                            if (dDecel > 0)
+                            {
+                                double term = Math.Pow((vTarget + vEndLimit)/2, 2);
+                                fuelDecel = (K_base + K_drag * term) * dDecel;
+                                total_v2_d += term * dDecel;
+                            }
+                            fuelUsed = fuelAccel + fuelFlat + fuelDecel;
 
                             currentSpeed = vEndLimit;
                             outSeg.target_m_s = Math.Round(vTarget, 4);
@@ -550,15 +572,12 @@ namespace Hackathon
                         }
 
                         time += timeUsed;
-                        if (enableFuel)
+                        fuel -= fuelUsed;
+                        totalFuelUsed += fuelUsed;
+                        if (enableFuelLimp && fuel <= 0)
                         {
-                            fuel -= fuelUsed;
-                            totalFuelUsed += fuelUsed;
-                            if (fuel <= 0)
-                            {
-                                fuel = 0;
-                                isLimp = true;
-                            }
+                            fuel = 0;
+                            isLimp = true;
                         }
                         if (enableDegradation)
                         {
@@ -587,8 +606,10 @@ namespace Hackathon
                         {
                             double limpSpeed = input.car.limp_constant_m_s;
                             timeUsed = seg.length_m / limpSpeed;
-                            fuelUsed = enableFuel ? (K_base + K_drag * limpSpeed * limpSpeed) * seg.length_m : 0;
-                            degUsed = enableDegradation ? (0.000265 * (limpSpeed * limpSpeed / seg.radius_m) * segDegRate) : 0;
+                            double term = limpSpeed * limpSpeed;
+                            fuelUsed = (K_base + K_drag * term) * seg.length_m;
+                            total_v2_d += term * seg.length_m;
+                            degUsed = enableDegradation ? (0.000265 * (term / seg.radius_m) * segDegRate) : 0;
                             currentSpeed = limpSpeed;
                         }
                         else if (vIn > vMax)
@@ -607,28 +628,29 @@ namespace Hackathon
                             }
                             double crawlSpeed = input.car.crawl_constant_m_s;
                             timeUsed = seg.length_m / crawlSpeed;
-                            fuelUsed = enableFuel ? (K_base + K_drag * crawlSpeed * crawlSpeed) * seg.length_m : 0;
-                            degUsed = enableDegradation ? (0.000265 * (crawlSpeed * crawlSpeed / seg.radius_m) * segDegRate) : 0;
+                            double term = crawlSpeed * crawlSpeed;
+                            fuelUsed = (K_base + K_drag * term) * seg.length_m;
+                            total_v2_d += term * seg.length_m;
+                            degUsed = enableDegradation ? (0.000265 * (term / seg.radius_m) * segDegRate) : 0;
                             currentSpeed = crawlSpeed;
                         }
                         else
                         {
                             timeUsed = seg.length_m / vIn;
-                            fuelUsed = enableFuel ? (K_base + K_drag * vIn * vIn) * seg.length_m : 0;
-                            degUsed = enableDegradation ? (0.000265 * (vIn * vIn / seg.radius_m) * segDegRate) : 0;
+                            double term = vIn * vIn;
+                            fuelUsed = (K_base + K_drag * term) * seg.length_m;
+                            total_v2_d += term * seg.length_m;
+                            degUsed = enableDegradation ? (0.000265 * (term / seg.radius_m) * segDegRate) : 0;
                             currentSpeed = vIn;
                         }
 
                         time += timeUsed;
-                        if (enableFuel)
+                        fuel -= fuelUsed;
+                        totalFuelUsed += fuelUsed;
+                        if (enableFuelLimp && fuel <= 0)
                         {
-                            fuel -= fuelUsed;
-                            totalFuelUsed += fuelUsed;
-                            if (fuel <= 0)
-                            {
-                                fuel = 0;
-                                isLimp = true;
-                            }
+                            fuel = 0;
+                            isLimp = true;
                         }
                         if (enableDegradation)
                         {
@@ -649,7 +671,7 @@ namespace Hackathon
                 }
 
                 // End of lap: decision to pit stop
-                if (lapNum < input.race.laps)
+                if (lapNum < input.race.laps && !input.race.name.Contains("Level 1", StringComparison.OrdinalIgnoreCase))
                 {
                     double nextLapStartTime = time;
                     var nextWeather = GetWeatherAtTime(input, nextLapStartTime);
@@ -658,7 +680,7 @@ namespace Hackathon
                     // Estimate fuel for next lap
                     double estLapFuel = totalTrackLength * (K_base + K_drag * Math.Pow(input.car.max_speed_m_s * alpha, 2));
 
-                    bool needRefuel = enableFuel && (fuel < estLapFuel * 1.2);
+                    bool needRefuel = fuel < estLapFuel * 1.2;
                     bool needTyreChange = enableDegradation && (tyreDegradation > beta || tyreCompound != nextBestCompound);
                     bool weatherTyreMismatch = tyreCompound != nextBestCompound;
 
@@ -667,13 +689,10 @@ namespace Hackathon
                         lap.pit.enter = true;
                         double refuelAmount = 0;
 
-                        if (enableFuel)
-                        {
-                            int remainingLaps = input.race.laps - lapNum;
-                            double fuelNeeded = remainingLaps * estLapFuel - fuel + 5.0; // 5L safety buffer
-                            refuelAmount = Math.Max(0.0, Math.Min(input.car.fuel_tank_capacity_l - fuel, fuelNeeded));
-                            lap.pit.fuel_refuel_amount_l = Math.Round(refuelAmount, 4);
-                        }
+                        int remainingLaps = input.race.laps - lapNum;
+                        double fuelNeeded = remainingLaps * estLapFuel - fuel + 5.0; // 5L safety buffer
+                        refuelAmount = Math.Max(0.0, Math.Min(input.car.fuel_tank_capacity_l - fuel, fuelNeeded));
+                        lap.pit.fuel_refuel_amount_l = Math.Round(refuelAmount, 4);
 
                         if (enableDegradation || weatherTyreMismatch || isLimp)
                         {
@@ -706,15 +725,13 @@ namespace Hackathon
                 strategy.laps.Add(lap);
             }
 
-            double baseScore = 1000000000.0 / time;
+            double baseScore = (input.race.time_reference_s / time) * 1000000.0;
             double fuelBonus = 0;
             double tyreBonus = 0;
 
-            if (enableFuel)
-            {
-                double ratio = totalFuelUsed / input.race.fuel_soft_cap_limit_l;
-                fuelBonus = -1000000.0 * Math.Pow(1.0 - ratio, 2) + 1000000.0;
-            }
+            double ratio = totalFuelUsed / input.race.fuel_soft_cap_limit_l;
+            fuelBonus = -1000000.0 * Math.Pow(1.0 - ratio, 2) + 1000000.0;
+
             if (enableDegradation)
             {
                 double sumDeg = accumulatedDegradations.Sum();
@@ -722,6 +739,11 @@ namespace Hackathon
             }
 
             double finalScore = baseScore + fuelBonus + tyreBonus;
+
+            if (alpha == 1.0)
+            {
+                Console.WriteLine($"[SIMULATION] totalFuelUsed = {totalFuelUsed}, total_v2_d = {total_v2_d}, time = {time}");
+            }
 
             return new SimulationResult
             {
