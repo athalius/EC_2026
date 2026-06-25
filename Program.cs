@@ -79,8 +79,30 @@ namespace Hackathon
                 sw.Stop();
 
                 Console.WriteLine();
-                Console.WriteLine($"Part 1: {part1}");
-                Console.WriteLine($"Part 2: {part2}");
+                if (part1.Trim().StartsWith("{"))
+                {
+                    // It is a JSON strategy output
+                    string outPath;
+                    if (readFromStdin)
+                    {
+                        outPath = "output.txt";
+                    }
+                    else
+                    {
+                        string dir = Path.GetDirectoryName(inputFile) ?? "";
+                        string filename = Path.GetFileNameWithoutExtension(inputFile);
+                        outPath = Path.Combine(dir, $"{filename}_output.txt");
+                    }
+
+                    File.WriteAllText(outPath, part1);
+                    Console.WriteLine($"[Strategy JSON Output saved to: {outPath}]");
+                    Console.WriteLine($"Part 2: {part2}");
+                }
+                else
+                {
+                    Console.WriteLine($"Part 1: {part1}");
+                    Console.WriteLine($"Part 2: {part2}");
+                }
                 Console.WriteLine();
 
                 double ms = (double)sw.ElapsedTicks / TimeSpan.TicksPerMillisecond;

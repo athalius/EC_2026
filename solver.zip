@@ -1,0 +1,346 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Hackathon.Utils;
+
+namespace Hackathon
+{
+    // JSON Data Structures for Input
+    public class CarConfig
+    {
+        [JsonPropertyName("max_speed_m/s")]
+        public double max_speed_m_s { get; set; }
+
+        [JsonPropertyName("accel_m/se2")]
+        public double accel_m_se2 { get; set; }
+
+        [JsonPropertyName("brake_m/se2")]
+        public double brake_m_se2 { get; set; }
+
+        [JsonPropertyName("limp_constant_m/s")]
+        public double limp_constant_m_s { get; set; }
+
+        [JsonPropertyName("crawl_constant_m/s")]
+        public double crawl_constant_m_s { get; set; }
+
+        public double fuel_tank_capacity_l { get; set; }
+        public double initial_fuel_l { get; set; }
+
+        [JsonPropertyName("fuel_consumption_l/m")]
+        public double fuel_consumption_l_m { get; set; }
+    }
+
+    public class RaceConfig
+    {
+        public string name { get; set; } = "";
+        public int laps { get; set; }
+        public double base_pit_stop_time_s { get; set; }
+        public double pit_tyre_swap_time_s { get; set; }
+
+        [JsonPropertyName("pit_refuel_rate_l/s")]
+        public double pit_refuel_rate_l_s { get; set; }
+
+        public double corner_crash_penalty_s { get; set; }
+
+        [JsonPropertyName("pit_exit_speed_m/s")]
+        public double pit_exit_speed_m_s { get; set; }
+
+        public double fuel_soft_cap_limit_l { get; set; }
+        public int starting_weather_condition_id { get; set; }
+        public double time_reference_s { get; set; }
+    }
+
+    public class TrackSegment
+    {
+        public int id { get; set; }
+        public string type { get; set; } = ""; // "straight" or "corner"
+        public double length_m { get; set; }
+        public double radius_m { get; set; } // Only for corners
+    }
+
+    public class TrackConfig
+    {
+        public string name { get; set; } = "";
+        public List<TrackSegment> segments { get; set; } = new();
+    }
+
+    public class TyreProperties
+    {
+        public double life_span { get; set; }
+        public double base_friction { get; set; }
+        public double dry_friction_multiplier { get; set; }
+        public double cold_friction_multiplier { get; set; }
+        public double light_rain_friction_multiplier { get; set; }
+        public double heavy_rain_friction_multiplier { get; set; }
+        public double dry_degradation { get; set; }
+        public double cold_degradation { get; set; }
+        public double light_rain_degradation { get; set; }
+        public double heavy_rain_degradation { get; set; }
+    }
+
+    public class TyresConfig
+    {
+        public Dictionary<string, TyreProperties> properties { get; set; } = new();
+    }
+
+    public class AvailableSet
+    {
+        public List<int> ids { get; set; } = new();
+        public string compound { get; set; } = "";
+    }
+
+    public class WeatherCondition
+    {
+        public int id { get; set; }
+        public string condition { get; set; } = "";
+        public double duration_s { get; set; }
+        public double acceleration_multiplier { get; set; }
+        public double deceleration_multiplier { get; set; }
+    }
+
+    public class WeatherConfig
+    {
+        public List<WeatherCondition> conditions { get; set; } = new();
+    }
+
+    public class ProblemInput
+    {
+        public CarConfig car { get; set; } = new();
+        public RaceConfig race { get; set; } = new();
+        public TrackConfig track { get; set; } = new();
+        public TyresConfig tyres { get; set; } = new();
+        public List<AvailableSet> available_sets { get; set; } = new();
+        public WeatherConfig weather { get; set; } = new();
+    }
+
+    // JSON Data Structures for Output Strategy
+    public class OutputSegment
+    {
+        public int id { get; set; }
+        public string type { get; set; } = "";
+
+        [JsonPropertyName("target_m/s")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public double? target_m_s { get; set; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public double? brake_start_m_before_next { get; set; }
+    }
+
+    public class OutputPit
+    {
+        public bool enter { get; set; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public int? tyre_change_set_id { get; set; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public double? fuel_refuel_amount_l { get; set; }
+    }
+
+    public class OutputLap
+    {
+        public int lap { get; set; }
+        public List<OutputSegment> segments { get; set; } = new();
+        public OutputPit pit { get; set; } = new();
+    }
+
+    public class OutputStrategy
+    {
+        public int initial_tyre_id { get; set; }
+        public List<OutputLap> laps { get; set; } = new();
+    }
+
+    public static class Solver
+    {
+        public static (string Part1, string Part2) Solve(string[] lines)
+        {
+            // Fallback for default template runs if input is not JSON
+            string content = string.Join("\n", lines).Trim();
+            if (!content.StartsWith("{"))
+            {
+                return (content.Length.ToString(), "0");
+            }
+
+            var options = new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            };
+
+            ProblemInput input;
+            try
+            {
+                input = JsonSerializer.Deserialize<ProblemInput>(content, options)
+                        ?? throw new Exception("Deserialization returned null.");
+            }
+            catch (Exception ex)
+            {
+                return ($"Error parsing input: {ex.Message}", "");
+            }
+
+            var strategy = SolveLevel1(input);
+
+            var writeOptions = new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+            };
+
+            string outputJson = JsonSerializer.Serialize(strategy, writeOptions);
+            return (outputJson, "Level 1 Complete");
+        }
+
+        private static OutputStrategy SolveLevel1(ProblemInput input)
+        {
+            // Level 1: Tyres do not degrade. Weather is dry throughout. No pit stops needed.
+            // 1. Select the tyre compound with the highest dry friction.
+            var softSet = input.available_sets.FirstOrDefault(s => s.compound == "Soft");
+            int selectedTyreId = softSet != null && softSet.ids.Count > 0 ? softSet.ids[0] : 1;
+
+            double baseFriction = 1.8;
+            double dryMultiplier = 1.18;
+            if (input.tyres.properties.TryGetValue("Soft", out var softProps))
+            {
+                baseFriction = softProps.base_friction;
+                dryMultiplier = softProps.dry_friction_multiplier;
+            }
+            double tyreFriction = baseFriction * dryMultiplier;
+
+            // 2. Compute maximum corner speed limits, grouping contiguous corner segments wrapping around the loop.
+            int n = input.track.segments.Count;
+            double[] cornerLimits = new double[n];
+            for (int i = 0; i < n; i++)
+            {
+                if (input.track.segments[i].type == "corner")
+                {
+                    double r = input.track.segments[i].radius_m;
+                    cornerLimits[i] = Math.Sqrt(tyreFriction * 9.8 * r);
+                }
+                else
+                {
+                    cornerLimits[i] = input.car.max_speed_m_s;
+                }
+            }
+
+            // Propagate limits for contiguous corner segments (constant speed in corners)
+            bool[] visited = new bool[n];
+            for (int i = 0; i < n; i++)
+            {
+                if (input.track.segments[i].type == "corner" && !visited[i])
+                {
+                    var group = new List<int>();
+                    int curr = i;
+                    while (input.track.segments[curr].type == "corner" && !visited[curr])
+                    {
+                        visited[curr] = true;
+                        group.Add(curr);
+                        curr = (curr + 1) % n;
+                    }
+                    // Scan backward to handle loop wrap-around
+                    int prev = (i - 1 + n) % n;
+                    while (input.track.segments[prev].type == "corner" && !visited[prev])
+                    {
+                        visited[prev] = true;
+                        group.Add(prev);
+                        prev = (prev - 1 + n) % n;
+                    }
+
+                    // Find minimum limit in this contiguous corner group
+                    double minLimit = double.MaxValue;
+                    foreach (var idx in group)
+                    {
+                        if (cornerLimits[idx] < minLimit)
+                        {
+                            minLimit = cornerLimits[idx];
+                        }
+                    }
+
+                    // Assign the minimum limit to all corners in the contiguous group
+                    foreach (var idx in group)
+                    {
+                        cornerLimits[idx] = minLimit;
+                    }
+                }
+            }
+
+            var strategy = new OutputStrategy
+            {
+                initial_tyre_id = selectedTyreId
+            };
+
+            double a = input.car.accel_m_se2;
+            double d = input.car.brake_m_se2;
+            double maxCarSpeed = input.car.max_speed_m_s;
+
+            for (int lapNum = 1; lapNum <= input.race.laps; lapNum++)
+            {
+                var lap = new OutputLap
+                {
+                    lap = lapNum,
+                    pit = new OutputPit { enter = false }
+                };
+
+                for (int i = 0; i < n; i++)
+                {
+                    var seg = input.track.segments[i];
+                    var outSeg = new OutputSegment
+                    {
+                        id = seg.id,
+                        type = seg.type
+                    };
+
+                    if (seg.type == "straight")
+                    {
+                        // Determine entry speed (vStart)
+                        double vStart;
+                        if (lapNum == 1 && i == 0)
+                        {
+                            vStart = 0; // Starts from standstill at the start of the race
+                        }
+                        else
+                        {
+                            int prevIdx = (i - 1 + n) % n;
+                            vStart = cornerLimits[prevIdx];
+                        }
+
+                        // Determine target speed for next corner (vEnd)
+                        int nextIdx = (i + 1) % n;
+                        double vEnd = cornerLimits[nextIdx];
+
+                        // Calculate maximum reachable speed in this straight
+                        double L = seg.length_m;
+                        double vPeakSq = (2 * a * d / (a + d)) * (L + (vStart * vStart) / (2 * a) + (vEnd * vEnd) / (2 * d));
+                        double vPeak = Math.Sqrt(vPeakSq);
+
+                        double vTarget = Math.Min(vPeak, maxCarSpeed);
+                        double dBrake;
+
+                        if (vTarget < vStart)
+                        {
+                            // Decelerate immediately/maintain start speed
+                            vTarget = vStart;
+                            dBrake = (vStart * vStart - vEnd * vEnd) / (2 * d);
+                        }
+                        else
+                        {
+                            dBrake = (vTarget * vTarget - vEnd * vEnd) / (2 * d);
+                        }
+
+                        // Cap target speed to 4 decimal places to prevent formatting issues
+                        outSeg.target_m_s = Math.Round(vTarget, 4);
+                        outSeg.brake_start_m_before_next = Math.Round(dBrake, 4);
+                    }
+
+                    lap.segments.Add(outSeg);
+                }
+
+                strategy.laps.Add(lap);
+            }
+
+            return strategy;
+        }
+    }
+}
