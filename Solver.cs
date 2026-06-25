@@ -311,19 +311,56 @@ namespace Hackathon
             }
         }
 
-        private static string GetBestCompoundForWeather(string condition, string dryCompoundPreference)
+        private static double GetFrictionMultiplier(TyreProperties props, string condition)
         {
             switch (condition.ToLower())
             {
+                case "dry": return props.dry_friction_multiplier;
+                case "cold": return props.cold_friction_multiplier;
                 case "light_rain":
-                case "light rain":
-                    return "Intermediate";
+                case "light rain": return props.light_rain_friction_multiplier;
                 case "heavy_rain":
-                case "heavy rain":
-                    return "Wet";
-                default:
-                    return dryCompoundPreference; // Soft, Medium, or Hard
+                case "heavy rain": return props.heavy_rain_friction_multiplier;
+                default: return props.dry_friction_multiplier;
             }
+        }
+
+        // Best compound for a weather condition = highest available friction (base * weather multiplier)
+        // for a fresh tyre. This naturally selects Soft for dry/cold/light-rain, and the wet-spec tyre
+        // for heavy rain only when its base friction is high enough to win (e.g. Level 4 Wet base 1.6).
+        private static string GetBestCompoundForWeather(ProblemInput input, string condition, string dryCompoundPreference)
+        {
+            string best = null;
+            double bestFriction = -1;
+            foreach (var set in input.available_sets)
+            {
+                if (!input.tyres.properties.TryGetValue(set.compound, out var props)) continue;
+                double friction = props.base_friction * GetFrictionMultiplier(props, condition);
+                if (friction > bestFriction)
+                {
+                    bestFriction = friction;
+                    best = set.compound;
+                }
+            }
+            return best ?? dryCompoundPreference;
+        }
+
+        // Minimum friction multiplier the current tyre will see across a lap's time window.
+        // Used to set corner speed limits conservatively so a mid-lap weather change to lower grip
+        // cannot cause a crash in the official simulator.
+        private static double GetMinFrictionMultiplierOverWindow(ProblemInput input, TyreProperties props, double startT, double endT)
+        {
+            if (endT <= startT) endT = startT + 1;
+            double minMult = double.MaxValue;
+            const int steps = 24;
+            for (int i = 0; i <= steps; i++)
+            {
+                double t = startT + (endT - startT) * i / steps;
+                var w = GetWeatherAtTime(input, t);
+                double m = GetFrictionMultiplier(props, w.condition);
+                if (m < minMult) minMult = m;
+            }
+            return minMult == double.MaxValue ? GetFrictionMultiplier(props, "dry") : minMult;
         }
 
         private static int GetUnusedTyreId(ProblemInput input, string compound, HashSet<int> usedIds)
@@ -358,7 +395,7 @@ namespace Hackathon
 
             // Initial weather lookup
             var initWeather = GetWeatherAtTime(input, 0);
-            string initCompound = GetBestCompoundForWeather(initWeather.condition, dryCompound);
+            string initCompound = GetBestCompoundForWeather(input, initWeather.condition, dryCompound);
             int activeTyreId = GetUnusedTyreId(input, initCompound, usedTyreIds);
             usedTyreIds.Add(activeTyreId);
 
@@ -379,6 +416,7 @@ namespace Hackathon
             };
 
             double currentSpeed = 0; // Starts from 0 m/s
+            double prevLapDur = 0; // measured duration of the previous lap (for weather-safe planning)
 
             for (int lapNum = 1; lapNum <= input.race.laps; lapNum++)
             {
@@ -393,8 +431,14 @@ namespace Hackathon
                 var startWeather = GetWeatherAtTime(input, lapStartTime);
                 var tyreProps = GetTyreProperties(input, tyreCompound);
                 var (fricMult, degRate) = GetWeatherTyreFactors(tyreProps, startWeather.condition);
-                
-                double activeFriction = (tyreProps.base_friction - tyreDegradation) * fricMult;
+
+                // Corner speed limits use the WORST (minimum) friction multiplier the tyre will see
+                // during this lap's time window, so a mid-lap weather change to lower grip can never
+                // cause a crash in the official simulator. For dry/static-weather levels this equals
+                // the lap-start multiplier (no change).
+                double lapWindow = prevLapDur > 0 ? prevLapDur * 1.15 : 350.0;
+                double safeMult = GetMinFrictionMultiplierOverWindow(input, tyreProps, lapStartTime, lapStartTime + lapWindow);
+                double activeFriction = (tyreProps.base_friction - tyreDegradation) * safeMult;
                 if (activeFriction < 0) activeFriction = 0;
 
                 // 1. Calculate corner limits
@@ -670,12 +714,16 @@ namespace Hackathon
                     lap.segments.Add(outSeg);
                 }
 
+                // Measured racing duration of this lap (excludes any pit time added below),
+                // used as the weather-window estimate when planning the next lap.
+                prevLapDur = time - lapStartTime;
+
                 // End of lap: decision to pit stop
                 if (lapNum < input.race.laps && !input.race.name.Contains("Level 1", StringComparison.OrdinalIgnoreCase))
                 {
                     double nextLapStartTime = time;
                     var nextWeather = GetWeatherAtTime(input, nextLapStartTime);
-                    string nextBestCompound = GetBestCompoundForWeather(nextWeather.condition, dryCompound);
+                    string nextBestCompound = GetBestCompoundForWeather(input, nextWeather.condition, dryCompound);
 
                     // Estimate fuel for next lap
                     double estLapFuel = totalTrackLength * (K_base + K_drag * Math.Pow(input.car.max_speed_m_s * alpha, 2));
@@ -729,6 +777,7 @@ namespace Hackathon
             double fuelBonus = 0;
             double tyreBonus = 0;
 
+            // Fuel bonus applied to ALL levels
             double ratio = totalFuelUsed / input.race.fuel_soft_cap_limit_l;
             fuelBonus = -1000000.0 * Math.Pow(1.0 - ratio, 2) + 1000000.0;
 
@@ -737,13 +786,14 @@ namespace Hackathon
                 double sumDeg = accumulatedDegradations.Sum();
                 tyreBonus = 100000.0 * sumDeg - 50000.0 * blowouts;
             }
+            else
+            {
+                // Non-degradation levels: tyre life fully preserved
+                var tyreProps = GetTyreProperties(input, tyreCompound);
+                tyreBonus = 100000.0 * tyreProps.life_span;
+            }
 
             double finalScore = baseScore + fuelBonus + tyreBonus;
-
-            if (alpha == 1.0)
-            {
-                Console.WriteLine($"[SIMULATION] totalFuelUsed = {totalFuelUsed}, total_v2_d = {total_v2_d}, time = {time}");
-            }
 
             return new SimulationResult
             {
